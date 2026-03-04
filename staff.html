@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kitchen Display | Nissos</title>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #121212;
+            --surface-color: #1E1E1E;
+            --text-main: #FFFFFF;
+            --text-muted: #A0A0A0;
+            --border-color: #333333;
+            --accent-color: #C4A474;
+            --success-color: #2E7D32;
+            --radius: 8px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Manrope', sans-serif; }
+        body { background-color: var(--bg-color); color: var(--text-main); display: flex; flex-direction: column; height: 100vh; }
+
+        /* HEADER */
+        header {
+            background-color: var(--surface-color); padding: 20px 32px; border-bottom: 1px solid var(--border-color);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .header-title { font-size: 18px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--accent-color); }
+        .live-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background-color: var(--success-color); animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+
+        /* GRID */
+        .dashboard-container { flex: 1; padding: 32px; overflow-y: auto; }
+        .orders-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px; }
+
+        /* ORDER CARD */
+        .order-card {
+            background-color: var(--surface-color); border: 1px solid var(--border-color); border-radius: var(--radius);
+            display: flex; flex-direction: column; transition: opacity 0.3s ease;
+        }
+        .card-header { padding: 16px; border-bottom: 1px dashed var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+        .table-info { font-size: 20px; font-weight: 700; }
+        .time-info { font-size: 12px; color: var(--text-muted); }
+
+        .card-body { padding: 16px; flex: 1; }
+        .item-row { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 15px; }
+        .item-row:last-child { margin-bottom: 0; }
+        .item-qty { font-weight: 700; color: var(--accent-color); width: 30px; }
+        .item-name { flex: 1; font-weight: 500; }
+
+        .card-footer { padding: 16px; }
+        .done-btn {
+            width: 100%; padding: 14px; background-color: transparent; color: var(--success-color);
+            border: 1px solid var(--success-color); border-radius: var(--radius); font-size: 13px; font-weight: 700; 
+            letter-spacing: 1px; cursor: pointer; transition: all 0.2s; text-transform: uppercase;
+        }
+        .done-btn:hover { background-color: var(--success-color); color: #fff; }
+
+        .empty-state { grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-muted); }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-title" id="shopTitle">KITCHEN DISPLAY</div>
+        <div class="live-status"><div class="dot"></div> Auto-Sync Active</div>
+    </header>
+
+    <div class="dashboard-container">
+        <div class="orders-grid" id="ordersGrid">
+            <div class="empty-state">Loading orders...</div>
+        </div>
+    </div>
+
+    <script>
+        // Το δικό σου API Gateway URL
+        const API_BASE_URL = 'https://yxdoaj8thk.execute-api.eu-central-1.amazonaws.com/Prod';
+        let shopId = 'nissos'; // Θα παίρνει την τιμή από το URL
+
+        async function initDashboard() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('shopId')) {
+                shopId = urlParams.get('shopId');
+            }
+            document.getElementById('shopTitle').innerText = `${shopId.toUpperCase()} - KITCHEN`;
+            
+            // Τρέχει αμέσως την πρώτη φορά
+            fetchOrders();
+            // Τρέχει κάθε 10 δευτερόλεπτα
+            setInterval(fetchOrders, 10000);
+        }
+
+        async function fetchOrders() {
+            try {
+                // GET request για ανάγνωση παραγγελιών
+                const response = await fetch(`${API_BASE_URL}/orders?shopId=${shopId}`);
+                if (!response.ok) throw new Error('Network response was not ok');
+                const orders = await response.json();
+                renderOrders(orders);
+            } catch (error) {
+                console.error("Error fetching orders:", error);
+            }
+        }
+
+        function renderOrders(orders) {
+            const grid = document.getElementById('ordersGrid');
+            grid.innerHTML = ''; 
+
+            // Κρατάμε ΜΟΝΟ όσες έχουν status "NEW"
+            const newOrders = orders.filter(order => order.status === 'NEW');
+
+            if (newOrders.length === 0) {
+                grid.innerHTML = `<div class="empty-state">No new orders. Kitchen is clear!</div>`;
+                return;
+            }
+
+            newOrders.forEach(order => {
+                const card = document.createElement('div');
+                card.className = 'order-card';
+                card.id = `order-${order.orderId}`;
+                
+                // Φορμάρισμα ώρας (π.χ. 14:30)
+                const timeString = new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                // Δημιουργία λίστας προϊόντων
+                let itemsHtml = '';
+                if (order.orderItem && Array.isArray(order.orderItem)) {
+                    order.orderItem.forEach(item => {
+                        itemsHtml += `
+                            <div class="item-row">
+                                <span class="item-qty">${item.quantity}x</span>
+                                <span class="item-name">${item.name || item.productId || 'Unknown'}</span>
+                            </div>
+                        `;
+                    });
+                }
+
+                card.innerHTML = `
+                    <div class="card-header">
+                        <div class="table-info">TBL ${order.tableNumber || '?'}</div>
+                        <div class="time-info">${timeString}</div>
+                    </div>
+                    <div class="card-body">
+                        ${itemsHtml}
+                    </div>
+                    <div class="card-footer">
+                        <button class="done-btn" onclick="markAsDone('${order.orderId}', this)">MARK AS DONE</button>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        async function markAsDone(orderId, btnElement) {
+            btnElement.innerText = 'UPDATING...';
+            btnElement.disabled = true;
+
+            // Το Payload που στέλνουμε στη Java για να αλλάξει το status
+            const payload = {
+                shopId: shopId,
+                orderId: orderId,
+                status: "COMPLETED"
+            };
+
+            try {
+                // PATCH request για ενημέρωση status
+                const response = await fetch(`${API_BASE_URL}/orders/status?shopId=${shopId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error('Failed to update status');
+
+                // Αν πετύχει, κρύβουμε την κάρτα αμέσως
+                const card = document.getElementById(`order-${orderId}`);
+                if (card) {
+                    card.style.opacity = '0';
+                    setTimeout(() => card.remove(), 300);
+                }
+
+            } catch (error) {
+                console.error("Error updating order:", error);
+                alert("Failed to update order. Check connection.");
+                btnElement.innerText = 'MARK AS DONE';
+                btnElement.disabled = false;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', initDashboard);
+    </script>
+</body>
+</html>
